@@ -1,33 +1,35 @@
 import customtkinter as ctk
-from data_manager import JsonDataManager
 from auth_views import AuthFrame
 from forum_views import MainForumFrame
 from admin_views import AdminWindow
+from client_api import ClientAPI  # <--- EZ VÁLTOZOTT (Helyi JSON helyett Hálózati API)
 
-ctk.set_appearance_mode("Dark")
-
-class App(ctk.CTk):
+class ForumApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("BME Egyetemi Fórum Portál")
+        self.title("BME Fórum Portál")
         self.geometry("1100x700")
-
-        self.db = JsonDataManager()
+        
+        # EZ OLDJA MEG A PROBLÉMÁT: A GUI mostantól a felhőhöz kapcsolódik!
+        self.db = ClientAPI()
+        
         self.current_user = None
 
-        self.container = ctk.CTkFrame(self, fg_color="#141517")
+        self.container = ctk.CTkFrame(self)
         self.container.pack(fill="both", expand=True)
 
         self.show_auth()
 
     def clear_container(self):
-        for widget in self.container.winfo_children():
-            widget.destroy()
+        for w in self.container.winfo_children():
+            w.destroy()
 
     def show_auth(self):
         self.clear_container()
-        auth_frame = AuthFrame(self.container, self.db, self.on_login_success)
-        auth_frame.pack(fill="both", expand=True)
+        if self.current_user:
+            self.db.set_offline(self.current_user["username"])
+        self.current_user = None
+        AuthFrame(self.container, self.db, self.on_login_success).pack(fill="both", expand=True)
 
     def on_login_success(self, user_data):
         self.current_user = user_data
@@ -35,15 +37,12 @@ class App(ctk.CTk):
 
     def show_forum(self):
         self.clear_container()
-        forum_frame = MainForumFrame(
-            self.container, self.db, self.current_user, 
-            on_logout=self.show_auth, open_admin_panel=self.open_admin_panel
-        )
-        forum_frame.pack(fill="both", expand=True)
+        MainForumFrame(self.container, self.db, self.current_user, self.show_auth, self.open_admin_panel).pack(fill="both", expand=True)
 
     def open_admin_panel(self):
-        AdminWindow(self, self.db, on_refresh_callback=self.show_forum)
+        AdminWindow(self, self.db, self.show_forum)
 
 if __name__ == "__main__":
-    app = App()
+    ctk.set_appearance_mode("dark")
+    app = ForumApp()
     app.mainloop()

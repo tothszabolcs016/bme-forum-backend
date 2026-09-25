@@ -1,44 +1,68 @@
 import requests
 
-# Ha elindul a felhős szervered, csak ezt az URL-t kell átírnod!
-SERVER_URL = "http://127.0.0.1:5000"  # Pl.: "https://bme-forum.onrender.com"
+# FONTOS: IDE A SAJÁT RENDER.COM CÍMEDET ÍRD! (Ne legyen a végén /)
+SERVER_URL = "https://bme-forum-backend.onrender.com"
 
 class ClientAPI:
-    def login(self, username, password):
+    def __init__(self):
+        print(f"[Rendszer] Csatlakozás a felhőhöz: {SERVER_URL}")
+
+    def _call(self, method_name, *args):
         try:
-            res = requests.post(f"{SERVER_URL}/login", json={"username": username, "password": password})
-            return res.json()["success"], res.json()["message"], res.json()["user"]
+            res = requests.post(f"{SERVER_URL}/api/call", json={"method": method_name, "args": args})
+            data = res.json()
+            if data.get("status") == "success":
+                return data.get("result")
+            else:
+                print(f"[Szerverhiba - {method_name}]: {data.get('message')}")
+                return None
         except Exception as e:
-            return False, f"Szerver elérésési hiba: {e}", None
+            print(f"[Hálózati hiba - {method_name}]: {e}")
+            return None
 
-    def register(self, username, fullname, email, phone, neptun, faculty, major, degree, pass1, pass2):
-        try:
-            res = requests.post(f"{SERVER_URL}/register", json={
-                "username": username, "fullname": fullname, "email": email, "phone": phone,
-                "neptun": neptun, "faculty": faculty, "major": major, "degree": degree,
-                "pass1": pass1, "pass2": pass2
-            })
-            return res.json()["success"], res.json()["message"]
-        except Exception as e:
-            return False, f"Szerver elérésési hiba: {e}"
+    # --- Hitelésítés ---
+    def login_user(self, username, password):
+        res = self._call("login_user", username, password)
+        return res if res else (False, "Szerver elérésési hiba", None)
 
-    def get_forum_data(self):
-        return requests.get(f"{SERVER_URL}/forum_data").json()
+    def register_user(self, username, fullname, email, phone, neptun, faculty, major, degree, pass1, pass2):
+        res = self._call("register_user", username, fullname, email, phone, neptun, faculty, major, degree, pass1, pass2)
+        return res if res else (False, "Szerver elérésési hiba")
 
-    def add_topic(self, subforum_id, title, author):
-        requests.post(f"{SERVER_URL}/add_topic", json={"subforum_id": subforum_id, "title": title, "author": author})
+    def send_password_reset_email(self, email):
+        res = self._call("send_password_reset_email", email)
+        return res if res else (False, "Szerverhiba")
 
-    def add_post(self, subforum_id, topic_id, author, content):
-        requests.post(f"{SERVER_URL}/add_post", json={"subforum_id": subforum_id, "topic_id": topic_id, "author": author, "content": content})
+    # --- Felhasználók & Profil ---
+    def get_all_users(self): return self._call("get_all_users") or []
+    def get_user(self, username): return self._call("get_user", username)
+    def update_profile_data(self, *args): return self._call("update_profile_data", *args)
+    def update_user_role(self, *args): return self._call("update_user_role", *args)
+    def delete_user(self, *args): return self._call("delete_user", *args)
+    def change_password_in_profile(self, *args): 
+        res = self._call("change_password_in_profile", *args)
+        return res if res else (False, "Szerverhiba")
 
-    def get_all_users(self):
-        return requests.get(f"{SERVER_URL}/users").json()
+    # --- Online Státusz (Heartbeat) ---
+    def is_online(self, username): return self._call("is_online", username)
+    def send_heartbeat(self, username): self._call("set_online", username)
+    def set_offline(self, username): self._call("set_offline", username)
 
-    def send_private_message(self, sender, receiver, content):
-        requests.post(f"{SERVER_URL}/send_pm", json={"sender": sender, "receiver": receiver, "content": content})
+    # --- Privát Üzenetek ---
+    def can_start_chat(self, *args): 
+        res = self._call("can_start_chat", *args)
+        return res if res else (False, "Szerverhiba")
+    def get_private_messages(self, *args): return self._call("get_private_messages", *args) or []
+    def send_private_message(self, *args): return self._call("send_private_message", *args)
+    def has_unread_messages(self, *args): return self._call("has_unread_messages", *args)
 
-    def get_private_messages(self, user1, user2):
-        return requests.post(f"{SERVER_URL}/get_pms", json={"user1": user1, "user2": user2}).json()
-
-    def send_heartbeat(self, username):
-        requests.post(f"{SERVER_URL}/heartbeat", json={"username": username})
+    # --- Fórum Moderáció és Adatok ---
+    def get_forum_data(self): 
+        return self._call("get_forum_data") or {"categories": [], "private_chats": []}
+        
+    def add_topic(self, *args): return self._call("add_topic", *args)
+    def add_post(self, *args): return self._call("add_post", *args)
+    def toggle_topic_deletion(self, *args): return self._call("toggle_topic_deletion", *args)
+    def toggle_post_deletion(self, *args): return self._call("toggle_post_deletion", *args)
+    def toggle_topic_lock(self, *args): return self._call("toggle_topic_lock", *args)
+    def move_topic(self, *args): return self._call("move_topic", *args)
