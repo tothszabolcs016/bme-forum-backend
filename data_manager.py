@@ -219,23 +219,35 @@ class JsonDataManager:
         if receiver_username in sender.get("friends", []): return True, "Engedélyezve"
         return False, "Privát üzenetet csak visszaigazolt barátoknak küldhetsz!"
 
-    def get_private_messages(self, user1, user2):
-        data = self.get_forum_data()
-        return [m for m in data.get("private_chats", []) if (m["sender"] == user1 and m["receiver"] == user2) or (m["sender"] == user2 and m["receiver"] == user1)]
-
     def send_private_message(self, sender, receiver, content):
         data = self._load_forum()
+        
+        # JAVÍTÁS: Biztosítjuk, hogy a private_chats szótár (dict) legyen, még ha a JSON-ben listaként is maradt meg
+        if "private_chats" not in data or isinstance(data.get("private_chats"), list):
+            data["private_chats"] = {}
+            
         chat_id = tuple(sorted([sender, receiver]))
         chat_key = f"{chat_id[0]}_{chat_id[1]}"
-        if chat_key not in data.get("private_chats", {}):
-            if "private_chats" not in data: data["private_chats"] = {}
+        
+        if chat_key not in data["private_chats"]:
             data["private_chats"][chat_key] = []
         
         data["private_chats"][chat_key].append({"sender": sender, "content": content})
         self._save_forum(data)
         
-        # 🚀 ÚJ: Értesítés küldése a fogadónak!
+        # Értesítés küldése a fogadónak
         self.add_notification(receiver, "Új privát üzenet", f"{sender} üzenetet küldött neked.", "pm", sender)
+
+    def get_private_messages(self, user1, user2):
+        data = self._load_forum()
+        
+        # JAVÍTÁS ITT IS: Ha véletlenül lista, akkor üresként kezeljük, hogy ne omoljon össze az olvasás
+        if "private_chats" not in data or isinstance(data.get("private_chats"), list):
+            return []
+            
+        chat_id = tuple(sorted([user1, user2]))
+        chat_key = f"{chat_id[0]}_{chat_id[1]}"
+        return data["private_chats"].get(chat_key, [])
 
     def add_post(self, subforum_id, topic_id, author, content):
         data = self._load_forum()
