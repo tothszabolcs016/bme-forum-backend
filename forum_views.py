@@ -290,11 +290,24 @@ class MainForumFrame(ctk.CTkFrame):
 
     def update_bell(self):
         notifs = self.db.get_notifications(self.current_user["username"])
-        unread = any(not n.get("is_read") for n in notifs)
-        if unread:
-            self.bell_btn.configure(text="🔔 (Új értesítés!)", fg_color="#800020")
+        
+        # Megszámoljuk, hány olvasatlan értesítés van pontosan
+        unread_count = sum(1 for n in notifs if not n.get("is_read"))
+        
+        if unread_count > 0:
+            # Feltűnőbb piros gomb, vastagított betűtípus és a darabszám
+            self.bell_btn.configure(
+                text=f"🔔 ({unread_count})", 
+                fg_color="#E74C3C", 
+                font=ctk.CTkFont(size=14, weight="bold")
+            )
         else:
-            self.bell_btn.configure(text="🔔", fg_color="transparent")
+            # Alapállapot, ha minden értesítés olvasott
+            self.bell_btn.configure(
+                text="🔔", 
+                fg_color="transparent", 
+                font=ctk.CTkFont(size=13, weight="normal")
+            )
 
     # --- FRISSÍTÉSEK ---
     def force_refresh(self):
