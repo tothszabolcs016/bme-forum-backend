@@ -5,6 +5,15 @@ import smtplib
 import uuid
 from email.mime.text import MIMEText
 
+# Próbáljuk meg betölteni a Postgres drivert (ha a Renderen vagyunk)
+try:
+    import psycopg2
+except ImportError:
+    psycopg2 = None
+
+# A Render környezeti változója az adatbázishoz
+DB_URL = os.environ.get("DATABASE_URL")
+
 USERS_FILE = "users.json"
 FORUM_FILE = "forum_data.json"
 
@@ -31,13 +40,91 @@ FACULTIES = {
 class JsonDataManager:
     def __init__(self):
         self.active_sessions = set()
-        self.init_files()
+        
+        # Ha a Renderen vagyunk, inicializáljuk az SQL táblát
+        if DB_URL and psycopg2:
+            self._init_db()
+            
+        # Betöltjük az alapértelmezett adatokat, ha még üres a rendszer
+        self.init_data()
 
     def _hash_password(self, password):
         return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
-    def init_files(self):
-        if not os.path.exists(USERS_FILE):
+    # --- SQL ADATBÁZIS METÓDUSOK ---
+    def _get_conn(self):
+        return psycopg2.connect(DB_URL)
+
+    def _init_db(self):
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS app_data (
+                        key VARCHAR(50) PRIMARY KEY,
+                        data JSONB
+                    )
+                """)
+            conn.commit()
+
+    # --- HIBRID BETÖLTŐ / MENTŐ METÓDUSOK ---
+    def _load_users(self):
+        if DB_URL and psycopg2:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT data FROM app_data WHERE key = 'users'")
+                    row = cur.fetchone()
+                    return row[0] if row else []
+        else:
+            try:
+                with open(USERS_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except FileNotFoundError:
+                return []
+
+    def _save_users(self, data):
+        if DB_URL and psycopg2:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO app_data (key, data) VALUES ('users', %s)
+                        ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data
+                    """, (json.dumps(data),))
+                conn.commit()
+        else:
+            with open(USERS_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+
+    def _load_forum(self):
+        if DB_URL and psycopg2:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT data FROM app_data WHERE key = 'forum'")
+                    row = cur.fetchone()
+                    return row[0] if row else {"categories": [], "private_chats": {}}
+        else:
+            try:
+                with open(FORUM_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except FileNotFoundError:
+                return {"categories": [], "private_chats": {}}
+
+    def _save_forum(self, data):
+        if DB_URL and psycopg2:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO app_data (key, data) VALUES ('forum', %s)
+                        ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data
+                    """, (json.dumps(data),))
+                conn.commit()
+        else:
+            with open(FORUM_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+
+    # --- ALAPÉRTELMEZETT ADATOK BETÖLTÉSE (Ha üres a DB / hiányzik a fájl) ---
+    def init_data(self):
+        users = self._load_users()
+        if not users:
             default_users = [
                 {
                     "username": "admin",
@@ -85,10 +172,10 @@ class JsonDataManager:
                     "friend_requests": []
                 }
             ]
-            with open(USERS_FILE, "w", encoding="utf-8") as f:
-                json.dump(default_users, f, ensure_ascii=False, indent=4)
+            self._save_users(default_users)
 
-        if not os.path.exists(FORUM_FILE):
+        forum = self._load_forum()
+        if not forum.get("categories"):
             default_data = {
                 "categories": [
                     {
@@ -116,7 +203,7 @@ class JsonDataManager:
                         ]
                     },
                     {
-                        "category": "VILLAMOSMÉRNÖKI ÉS INFORMATIKAI KAR (VIK)",
+                        "category": "VILLAMOSMÉRNÖKI ÉS INFORMATIKAI Kar (VIK)",
                         "subforums": [
                             {
                                 "subforum_id": 2,
@@ -127,10 +214,11 @@ class JsonDataManager:
                         ]
                     }
                 ],
-                "private_chats": []
+                "private_chats": {}  # JAVÍTVA LISTÁRÓL SZÓTÁRRA
             }
-            with open(FORUM_FILE, "w", encoding="utf-8") as f:
-                json.dump(default_data, f, ensure_ascii=False, indent=4)
+            self._save_forum(default_data)
+
+    # --- INNENTŐL LEFELÉ JÖHET A TÖBBI METÓDUS (add_post, stb.) ---
 
     # --- ONLINE STATUS ---
     def set_online(self, username): self.active_sessions.add(username)
