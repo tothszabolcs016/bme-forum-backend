@@ -15,11 +15,16 @@ class ProfileAndChatWindow(ctk.CTkToplevel):
         self.current_user = current_user
         self.target_username = target_username
         self.on_update_callback = on_update_callback
-        self.last_msg_count = -1  # Villogás-gátló a chathez
+        self.last_msg_count = -1
         self.configure(fg_color="#141517")
 
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=15, pady=(15, 0))
+        ctk.CTkLabel(header, text=f"Fiók: {self.target_username}", font=ctk.CTkFont(size=16, weight="bold")).pack(side="left")
+        ctk.CTkButton(header, text="🔄 Frissítés", width=80, fg_color="#3498DB", hover_color="#2980B9", command=self.force_refresh).pack(side="right")
+
         self.tabview = ctk.CTkTabview(self, fg_color="#1d1e22", segmented_button_selected_color="#800020")
-        self.tabview.pack(fill="both", expand=True, padx=15, pady=15)
+        self.tabview.pack(fill="both", expand=True, padx=15, pady=10)
 
         self.profile_tab = self.tabview.add("Profil Adatok")
         if self.current_user["username"] != self.target_username:
@@ -29,7 +34,16 @@ class ProfileAndChatWindow(ctk.CTkToplevel):
         if self.current_user["username"] != self.target_username:
             self.setup_chat_tab()
 
+    def force_refresh(self):
+        self.setup_profile_tab() # Újrarajzolja a profil fület (ha pl. jött barátkérelem)
+        if hasattr(self, 'chat_scroll') and self.chat_scroll.winfo_exists():
+            msgs = self.db.get_private_messages(self.current_user["username"], self.target_username)
+            self.last_msg_count = len(msgs)
+            self.render_chat(msgs)
+
     def setup_profile_tab(self):
+        for w in self.profile_tab.winfo_children(): w.destroy()
+        
         user_data = next((u for u in self.db.get_all_users() if u["username"] == self.target_username), None)
         if not user_data: return
         is_self = (self.current_user["username"] == self.target_username)
@@ -54,7 +68,24 @@ class ProfileAndChatWindow(ctk.CTkToplevel):
         if not is_self: self.bio_entry.configure(state="disabled")
         self.bio_entry.pack(pady=4)
 
+        self.status_lbl = ctk.CTkLabel(box, text="", font=ctk.CTkFont(size=12))
+        self.status_lbl.pack(pady=4)
+
+        # --- SAJÁT PROFIL LOGIKA (Jelszó + Bejövő Barátkérelmek) ---
         if is_self:
+            # Barátkérelmek listázása és elfogadása
+            requests = user_data.get("friend_requests", [])
+            if requests:
+                req_frame = ctk.CTkFrame(box, fg_color="#2c1e1e", corner_radius=8)
+                req_frame.pack(fill="x", pady=10, padx=20)
+                ctk.CTkLabel(req_frame, text="🔔 Érkezett Barátkérelmek:", font=ctk.CTkFont(weight="bold"), text_color="#E74C3C").pack(pady=5)
+                
+                for req in requests:
+                    r_row = ctk.CTkFrame(req_frame, fg_color="transparent")
+                    r_row.pack(fill="x", padx=10, pady=2)
+                    ctk.CTkLabel(r_row, text=f"• {req}").pack(side="left")
+                    ctk.CTkButton(r_row, text="Elfogad", width=70, height=24, fg_color="#27AE60", command=lambda r=req: self.accept_friend(r)).pack(side="right")
+
             ctk.CTkLabel(box, text="Jelszó Módosítása:", font=ctk.CTkFont(weight="bold")).pack(pady=(15, 5))
             self.curr_pass = ctk.CTkEntry(box, width=300, placeholder_text="Jelenlegi jelszó", show="*")
             self.curr_pass.pack(pady=4)
@@ -63,11 +94,23 @@ class ProfileAndChatWindow(ctk.CTkToplevel):
             self.new_pass2 = ctk.CTkEntry(box, width=300, placeholder_text="Új jelszó újra", show="*")
             self.new_pass2.pack(pady=4)
 
-            self.status_lbl = ctk.CTkLabel(box, text="", font=ctk.CTkFont(size=12))
-            self.status_lbl.pack(pady=4)
-
             save_btn = ctk.CTkButton(box, text="Profil Mentése", fg_color="#800020", command=self.save_profile)
             save_btn.pack(pady=15)
+            
+        # --- MÁS FELHASZNÁLÓ PROFILJA (Barátkérelem küldése) ---
+        else:
+            # Csak hallgatóknak releváns a barátkérelem
+            if self.current_user["role"] == "Hallgató" and user_data["role"] == "Hallgató":
+                friend_btn = ctk.CTkButton(box, text="+ Barátkérelem Küldése", fg_color="#27AE60", command=self.send_friend_req)
+                friend_btn.pack(pady=15)
+
+    def send_friend_req(self):
+        success, msg = self.db.send_friend_request(self.current_user["username"], self.target_username)
+        self.status_lbl.configure(text=msg, text_color="#2ECC71" if success else "#E74C3C")
+
+    def accept_friend(self, requester):
+        self.db.accept_friend_request(self.current_user["username"], requester)
+        self.force_refresh()
 
     def save_profile(self):
         self.on_update_callback()
@@ -87,23 +130,19 @@ class ProfileAndChatWindow(ctk.CTkToplevel):
 
         self.msg_entry = ctk.CTkEntry(input_box, placeholder_text="Üzenet írása...", fg_color="#141517")
         self.msg_entry.pack(side="left", fill="x", expand=True, padx=8, pady=8)
-        self.msg_entry.bind("<Return>", lambda event: self.send_msg()) # Enter gombra is küld
+        self.msg_entry.bind("<Return>", lambda event: self.send_msg())
 
         send_btn = ctk.CTkButton(input_box, text="Küldés", width=80, fg_color="#800020", command=self.send_msg)
         send_btn.pack(side="right", padx=8, pady=8)
 
-        # Élő frissítés indítása a chaten
         self.auto_refresh_chat()
 
     def auto_refresh_chat(self):
-        if self.winfo_exists():  # Csak ha még nyitva van az ablak
+        if self.winfo_exists():
             msgs = self.db.get_private_messages(self.current_user["username"], self.target_username)
-            # Csak akkor rajzoljuk újra, ha új üzenet jött, így nem villog!
             if len(msgs) != self.last_msg_count:
                 self.last_msg_count = len(msgs)
                 self.render_chat(msgs)
-            
-            # 3 másodpercenként újra lekérdezi
             self.after(3000, self.auto_refresh_chat)
 
     def render_chat(self, msgs):
@@ -112,18 +151,14 @@ class ProfileAndChatWindow(ctk.CTkToplevel):
             is_me = (m["sender"] == self.current_user["username"])
             bubble = ctk.CTkFrame(self.chat_scroll, fg_color="#800020" if is_me else "#212328", corner_radius=8)
             bubble.pack(anchor="e" if is_me else "w", pady=4, padx=8)
-
-            lbl = ctk.CTkLabel(bubble, text=m["content"], text_color="#ffffff")
-            lbl.pack(padx=10, pady=5)
-        
-        # Opcionális: görgetés az aljára (Tkinterben kicsit trükkös, de a frissítés megoldva)
+            ctk.CTkLabel(bubble, text=m["content"], text_color="#ffffff").pack(padx=10, pady=5)
 
     def send_msg(self):
         txt = self.msg_entry.get().strip()
         if txt:
             self.db.send_private_message(self.current_user["username"], self.target_username, txt)
             self.msg_entry.delete(0, "end")
-            # A következő auto-refresh cikluson belül azonnal meg fog jelenni
+            self.force_refresh()
 
 
 class MainForumFrame(ctk.CTkFrame):
@@ -136,10 +171,10 @@ class MainForumFrame(ctk.CTkFrame):
 
         self.selected_subforum_id = None
         self.selected_topic_id = None
-        self.last_forum_data = None # Villogás-gátló a fórumnál
+        self.last_forum_data = None
 
         self.setup_ui()
-        self.auto_refresh_main() # Élő frissítés elindítása
+        self.auto_refresh_main()
 
     def setup_ui(self):
         for w in self.winfo_children(): w.destroy()
@@ -147,18 +182,20 @@ class MainForumFrame(ctk.CTkFrame):
         navbar = ctk.CTkFrame(self, height=55, fg_color="#1d1e22", corner_radius=0)
         navbar.pack(fill="x")
 
-        logo = ctk.CTkLabel(navbar, text="BME FÓRUM PORTÁL", font=ctk.CTkFont(size=18, weight="bold"), text_color="#800020")
+        logo = ctk.CTkLabel(navbar, text="BME FÓRUM", font=ctk.CTkFont(size=18, weight="bold"), text_color="#800020")
         logo.pack(side="left", padx=20, pady=12)
+
+        refresh_btn = ctk.CTkButton(navbar, text="🔄 Frissítés", width=90, fg_color="#3498DB", hover_color="#2980B9", command=self.force_refresh)
+        refresh_btn.pack(side="left", padx=10)
 
         if self.current_user.get("role") == "Admin":
             admin_btn = ctk.CTkButton(navbar, text="⚙ ADMIN PANEL", fg_color="#E74C3C", width=120, command=self.open_admin_panel)
             admin_btn.pack(side="left", padx=10)
 
-        # Az értesítés gombot eltároljuk, hogy tudjuk frissíteni
         self.bell_btn = ctk.CTkButton(navbar, text="🔔", width=40, fg_color="transparent")
         self.bell_btn.pack(side="left", padx=10)
 
-        logout_btn = ctk.CTkButton(navbar, text="Kijelentkezés", width=100, fg_color="#2b2c30", command=self.on_logout)
+        logout_btn = ctk.CTkButton(navbar, text="Kijelentkezés", width=100, fg_color="#2b2c30", command=self.handle_logout)
         logout_btn.pack(side="right", padx=15)
 
         role_info = ROLES.get(self.current_user.get("role"), ROLES["Hallgató"])
@@ -187,34 +224,35 @@ class MainForumFrame(ctk.CTkFrame):
         self.online_list_frame = ctk.CTkFrame(right_panel, fg_color="transparent")
         self.online_list_frame.pack(fill="x")
 
-        # Kezdeti renderelés
         self.last_forum_data = self.db.get_forum_data()
         self.render_forum_view()
         self.update_online_users()
 
-    # --- ÉLŐ FRISSÍTÉS (POLLING) CIKLUS ---
+    def force_refresh(self):
+        if hasattr(self.db, 'send_heartbeat'): self.db.send_heartbeat(self.current_user["username"])
+        self.update_online_users()
+        
+        has_unread = False
+        if hasattr(self.db, 'has_unread_messages'): has_unread = self.db.has_unread_messages(self.current_user["username"])
+        self.bell_btn.configure(text="🔔 (Új üzenet!)" if has_unread else "🔔", fg_color="#800020" if has_unread else "transparent")
+        
+        self.last_forum_data = self.db.get_forum_data()
+        self.render_forum_view()
+
     def auto_refresh_main(self):
         if self.winfo_exists():
-            # 1. Beküldjük, hogy élünk (Heartbeat a szervernek)
-            if hasattr(self.db, 'send_heartbeat'):
-                self.db.send_heartbeat(self.current_user["username"])
-
-            # 2. Frissítjük az online felhasználók listáját
+            if hasattr(self.db, 'send_heartbeat'): self.db.send_heartbeat(self.current_user["username"])
             self.update_online_users()
 
-            # 3. Értesítések frissítése
             has_unread = False
-            if hasattr(self.db, 'has_unread_messages'):
-                has_unread = self.db.has_unread_messages(self.current_user["username"])
+            if hasattr(self.db, 'has_unread_messages'): has_unread = self.db.has_unread_messages(self.current_user["username"])
             self.bell_btn.configure(text="🔔 (Új üzenet!)" if has_unread else "🔔", fg_color="#800020" if has_unread else "transparent")
 
-            # 4. Fórum tartalmak frissítése CSAK AKKOR, ha változott valami
             new_data = self.db.get_forum_data()
             if self.last_forum_data != new_data:
                 self.last_forum_data = new_data
                 self.render_forum_view()
 
-            # Újraindítja a ciklust 5 másodperc múlva
             self.after(5000, self.auto_refresh_main)
 
     def update_online_users(self):
@@ -223,11 +261,10 @@ class MainForumFrame(ctk.CTkFrame):
         all_users = self.db.get_all_users()
         online_users = []
         for u in all_users:
-            # Csak azokat jelenítjük meg, akiket a szerver online-nak lát
             if hasattr(self.db, 'is_online'):
                 if self.db.is_online(u["username"]): online_users.append(u)
             else:
-                online_users.append(u) # Fallback, ha nincs is_online metódus
+                online_users.append(u)
 
         self.online_title_lbl.configure(text=f"Online Tagok ({len(online_users)})")
 
@@ -241,18 +278,17 @@ class MainForumFrame(ctk.CTkFrame):
             u_btn.pack(fill="x", padx=10, pady=2)
 
     def render_forum_view(self):
-        """Intelligens renderelő: azt frissíti, amit épp néz a felhasználó."""
-        if self.selected_topic_id:
-            self.open_topic(self.selected_subforum_id, self.selected_topic_id)
-        elif self.selected_subforum_id:
-            self.open_subforum(self.selected_subforum_id)
-        else:
-            self.render_forum_list()
+        if self.selected_topic_id: self.open_topic(self.selected_subforum_id, self.selected_topic_id)
+        elif self.selected_subforum_id: self.open_subforum(self.selected_subforum_id)
+        else: self.render_forum_list()
 
     def open_profile(self, target_username):
-        ProfileAndChatWindow(self, self.db, self.current_user, target_username, on_update_callback=lambda: None)
+        ProfileAndChatWindow(self, self.db, self.current_user, target_username, on_update_callback=self.force_refresh)
 
-    # --- EREDETI RENDERELŐ METÓDUSOK (Ezeket már a render_forum_view hívja) ---
+    def handle_logout(self):
+        self.db.set_offline(self.current_user["username"])
+        self.on_logout()
+
     def render_forum_list(self):
         for w in self.left_box.winfo_children(): w.destroy()
         data = self.last_forum_data
@@ -299,10 +335,10 @@ class MainForumFrame(ctk.CTkFrame):
 
                         if self.current_user.get("role") == "Admin" or self.current_user["username"] == top["author"]:
                             if is_deleted:
-                                ctk.CTkButton(card, text="Visszaállítás", fg_color="#27AE60", width=80, command=lambda t_id=top["topic_id"]: self.db.toggle_topic_deletion(t_id, False)).pack(side="right", padx=5)
+                                ctk.CTkButton(card, text="Visszaállítás", fg_color="#27AE60", width=80, command=lambda t_id=top["topic_id"]: [self.db.toggle_topic_deletion(t_id, False), self.force_refresh()]).pack(side="right", padx=5)
                             else:
-                                ctk.CTkButton(card, text="Törlés", fg_color="#E74C3C", width=60, command=lambda t_id=top["topic_id"]: self.db.toggle_topic_deletion(t_id, True)).pack(side="right", padx=5)
-                                ctk.CTkButton(card, text="Nyit/Zár", fg_color="#E67E22", width=60, command=lambda t_id=top["topic_id"]: self.db.toggle_topic_lock(t_id)).pack(side="right", padx=5)
+                                ctk.CTkButton(card, text="Törlés", fg_color="#E74C3C", width=60, command=lambda t_id=top["topic_id"]: [self.db.toggle_topic_deletion(t_id, True), self.force_refresh()]).pack(side="right", padx=5)
+                                ctk.CTkButton(card, text="Nyit/Zár", fg_color="#E67E22", width=60, command=lambda t_id=top["topic_id"]: [self.db.toggle_topic_lock(t_id), self.force_refresh()]).pack(side="right", padx=5)
 
     def open_topic(self, subforum_id, topic_id):
         self.selected_subforum_id = subforum_id
@@ -322,7 +358,7 @@ class MainForumFrame(ctk.CTkFrame):
                                 move_bar = ctk.CTkFrame(self.left_box, fg_color="#1d1e22")
                                 move_bar.pack(fill="x", pady=5)
                                 ctk.CTkLabel(move_bar, text="Téma Átmozgatása:").pack(side="left", padx=10)
-                                ctk.CTkOptionMenu(move_bar, values=["1 - Központi Hirdetmények", "2 - Python Nagyházi"], command=lambda target, t_id=topic_id: self.db.move_topic(t_id, int(target.split(" - ")[0]))).pack(side="left", padx=10)
+                                ctk.CTkOptionMenu(move_bar, values=["1 - Központi Hirdetmények", "2 - Python Nagyházi"], command=lambda target, t_id=topic_id: [self.db.move_topic(t_id, int(target.split(" - ")[0])), setattr(self, 'selected_topic_id', None), self.force_refresh()]).pack(side="left", padx=10)
 
                             for idx, post in enumerate(top["posts"]):
                                 is_p_deleted = post.get("deleted", False)
@@ -336,9 +372,9 @@ class MainForumFrame(ctk.CTkFrame):
 
                                 if self.current_user.get("role") == "Admin" or self.current_user["username"] == top["author"]:
                                     if is_p_deleted:
-                                        ctk.CTkButton(hdr, text="Visszaállítás", fg_color="#27AE60", width=70, height=22, command=lambda p_idx=idx: self.db.toggle_post_deletion(topic_id, p_idx, False)).pack(side="right")
+                                        ctk.CTkButton(hdr, text="Visszaállítás", fg_color="#27AE60", width=70, height=22, command=lambda p_idx=idx: [self.db.toggle_post_deletion(topic_id, p_idx, False), self.force_refresh()]).pack(side="right")
                                     else:
-                                        ctk.CTkButton(hdr, text="Törlés", fg_color="#E74C3C", width=50, height=22, command=lambda p_idx=idx: self.db.toggle_post_deletion(topic_id, p_idx, True)).pack(side="right")
+                                        ctk.CTkButton(hdr, text="Törlés", fg_color="#E74C3C", width=50, height=22, command=lambda p_idx=idx: [self.db.toggle_post_deletion(topic_id, p_idx, True), self.force_refresh()]).pack(side="right")
 
                                 txt = f"❌ [TÖRÖLT BEJEGYZÉS]: {post['content']}" if is_p_deleted else post['content']
                                 ctk.CTkLabel(card, text=txt, text_color="#888888" if is_p_deleted else "#ffffff", wraplength=520, justify="left", anchor="w").pack(anchor="w", padx=12, pady=(4, 8))
@@ -358,10 +394,11 @@ class MainForumFrame(ctk.CTkFrame):
         if text:
             self.db.add_post(subforum_id, topic_id, self.current_user["username"], text)
             self.reply_entry.delete(0, "end")
-            # Nem kell kézzel frissíteni, mert a poll ciklus észreveszi, ha bekerült az adatbázisba!
+            self.force_refresh()
 
     def create_topic(self):
         dialog = ctk.CTkInputDialog(text="Új téma címe:", title="Téma Nyitása")
         t_title = dialog.get_input()
         if t_title and t_title.strip():
             self.db.add_topic(self.selected_subforum_id, t_title.strip(), self.current_user["username"])
+            self.force_refresh()

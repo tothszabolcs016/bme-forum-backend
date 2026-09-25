@@ -1,6 +1,6 @@
 import requests
 
-# FONTOS: IDE A SAJÁT RENDER.COM CÍMEDET ÍRD! (Ne legyen a végén /)
+# FONTOS: IDE A SAJÁT RENDER.COM CÍMEDET ÍRD!
 SERVER_URL = "https://bme-forum-backend.onrender.com"
 
 class ClientAPI:
@@ -20,7 +20,7 @@ class ClientAPI:
             print(f"[Hálózati hiba - {method_name}]: {e}")
             return None
 
-    # --- Hitelésítés ---
+    # --- Hitelesítés ---
     def login_user(self, username, password):
         res = self._call("login_user", username, password)
         return res if res else (False, "Szerver elérésési hiba", None)
@@ -43,15 +43,23 @@ class ClientAPI:
         res = self._call("change_password_in_profile", *args)
         return res if res else (False, "Szerverhiba")
 
-    # --- Online Státusz (Heartbeat) ---
+    # --- Online Státusz ---
     def is_online(self, username): return self._call("is_online", username)
     def send_heartbeat(self, username): self._call("set_online", username)
     def set_offline(self, username): self._call("set_offline", username)
 
-    # --- Privát Üzenetek ---
+    # --- Barátkérelmek & Privát Üzenetek (VISSZARAKVA!) ---
+    def send_friend_request(self, sender, receiver):
+        res = self._call("send_friend_request", sender, receiver)
+        return res if res else (False, "Szerverhiba")
+        
+    def accept_friend_request(self, user1, user2):
+        return self._call("accept_friend_request", user1, user2)
+
     def can_start_chat(self, *args): 
         res = self._call("can_start_chat", *args)
         return res if res else (False, "Szerverhiba")
+        
     def get_private_messages(self, *args): return self._call("get_private_messages", *args) or []
     def send_private_message(self, *args): return self._call("send_private_message", *args)
     def has_unread_messages(self, *args): return self._call("has_unread_messages", *args)
