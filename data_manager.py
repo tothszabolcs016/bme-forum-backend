@@ -381,3 +381,29 @@ class JsonDataManager:
                         n["is_read"] = True
                 self._save_users(users)
                 break
+
+    def _load_users(self):
+        import json
+        try:
+            with open("users.json", "r", encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return []
+
+    def _save_users(self, data):
+        import json
+        with open("users.json", "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+
+    def _load_forum(self):
+        import json
+        try:
+            with open("forum_data.json", "r", encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return {"categories": [], "private_chats": {}}
+
+    def _save_forum(self, data):
+        import json
+        with open("forum_data.json", "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
