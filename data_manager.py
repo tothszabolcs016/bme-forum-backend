@@ -18,15 +18,15 @@ USERS_FILE = "users.json"
 FORUM_FILE = "forum_data.json"
 
 ROLES = {
-    "Admin": {"color": "#E74C3C", "label": "[ADMIN]"},
-    "Oktató": {"color": "#3498DB", "label": "[OKTATÓ]"},
-    "Hallgató": {"color": "#800020", "label": "[HALLGATÓ]"}
+    "Admin": {"color": "#efad5f", "label": "[Rendszergazda]"},
+    "Oktató": {"color": "#32b3ef", "label": "[Oktató]"},
+    "Hallgató": {"color": "#800020", "label": "[Hallgató]"}
 }
 
 FACULTIES = {
     "VIK (Villamosmérnöki és Informatikai Kar)": {
         "Mérnökinformatikus": ["BSc", "MSc", "PhD"],
-        "Üzemmérnökinformatikus": ["BProf"],
+        "Üzemmérnök-informatikus": ["BProf"],
         "Villamosmérnök": ["BSc", "MSc", "PhD"]
     },
     "ÉPK (Építészmérnöki Kar)": {
