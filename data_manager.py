@@ -2,6 +2,7 @@ import json
 import os
 import hashlib
 import smtplib
+import uuid
 from email.mime.text import MIMEText
 
 USERS_FILE = "users.json"
@@ -223,10 +224,37 @@ class JsonDataManager:
         return [m for m in data.get("private_chats", []) if (m["sender"] == user1 and m["receiver"] == user2) or (m["sender"] == user2 and m["receiver"] == user1)]
 
     def send_private_message(self, sender, receiver, content):
-        data = self.get_forum_data()
-        if "private_chats" not in data: data["private_chats"] = []
-        data["private_chats"].append({"sender": sender, "receiver": receiver, "content": content, "read": False, "timestamp": "2026-09-25 20:00"})
-        self.save_forum_data(data)
+        data = self._load_forum()
+        chat_id = tuple(sorted([sender, receiver]))
+        chat_key = f"{chat_id[0]}_{chat_id[1]}"
+        if chat_key not in data.get("private_chats", {}):
+            if "private_chats" not in data: data["private_chats"] = {}
+            data["private_chats"][chat_key] = []
+        
+        data["private_chats"][chat_key].append({"sender": sender, "content": content})
+        self._save_forum(data)
+        
+        # 🚀 ÚJ: Értesítés küldése a fogadónak!
+        self.add_notification(receiver, "Új privát üzenet", f"{sender} üzenetet küldött neked.", "pm", sender)
+
+    def add_post(self, subforum_id, topic_id, author, content):
+        data = self._load_forum()
+        for cat in data["categories"]:
+            for sf in cat["subforums"]:
+                if sf["subforum_id"] == subforum_id:
+                    for top in sf["topics"]:
+                        if top["topic_id"] == topic_id:
+                            top["posts"].append({"author": author, "content": content, "deleted": False})
+                            self._save_forum(data)
+                            
+                            # 🚀 ÚJ: Értesítés a téma írójának (ha nem saját magának válaszolt)
+                            if top["author"] != author:
+                                self.add_notification(
+                                    top["author"], "Új hozzászólás", 
+                                    f"{author} válaszolt a témádra: {top['title']}", 
+                                    "topic", {"subforum_id": subforum_id, "topic_id": topic_id}
+                                )
+                            return
 
     def has_unread_messages(self, username):
         data = self.get_forum_data()
@@ -256,18 +284,6 @@ class JsonDataManager:
                         "posts": []
                     })
                     break
-        self.save_forum_data(data)
-
-    def add_post(self, subforum_id, topic_id, author, content):
-        data = self.get_forum_data()
-        for cat in data["categories"]:
-            for sf in cat["subforums"]:
-                if sf["subforum_id"] == subforum_id:
-                    for top in sf["topics"]:
-                        if top["topic_id"] == topic_id:
-                            if not top.get("locked", False):
-                                top["posts"].append({"author": author, "content": content, "deleted": False})
-                            break
         self.save_forum_data(data)
 
     def toggle_topic_deletion(self, topic_id, delete_state=True):
@@ -331,3 +347,37 @@ class JsonDataManager:
         users = [u for u in self.get_all_users() if u["username"] != username]
         self.save_all_users(users)
         self.set_offline(username)
+
+    def add_notification(self, username, title, message, target_type, target_data):
+        users = self._load_users()
+        for u in users:
+            if u["username"] == username:
+                if "notifications" not in u:
+                    u["notifications"] = []
+                # Új értesítés beszúrása a lista elejére
+                u["notifications"].insert(0, {
+                    "id": str(uuid.uuid4()),
+                    "title": title,
+                    "message": message,
+                    "target_type": target_type,
+                    "target_data": target_data,
+                    "is_read": False
+                })
+                self._save_users(users)
+                break
+
+    def get_notifications(self, username):
+        for u in self._load_users():
+            if u["username"] == username:
+                return u.get("notifications", [])
+        return []
+
+    def mark_notification_read(self, username, notif_id):
+        users = self._load_users()
+        for u in users:
+            if u["username"] == username:
+                for n in u.get("notifications", []):
+                    if n["id"] == notif_id:
+                        n["is_read"] = True
+                self._save_users(users)
+                break

@@ -64,6 +64,9 @@ class ClientAPI:
     def send_private_message(self, *args): return self._call("send_private_message", *args)
     def has_unread_messages(self, *args): return self._call("has_unread_messages", *args)
 
+    def get_notifications(self, username): return self._call("get_notifications", username) or []
+    def mark_notification_read(self, username, notif_id): return self._call("mark_notification_read", username, notif_id)
+
     # --- Fórum Moderáció és Adatok ---
     def get_forum_data(self): 
         return self._call("get_forum_data") or {"categories": [], "private_chats": []}

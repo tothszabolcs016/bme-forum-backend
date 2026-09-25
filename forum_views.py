@@ -6,6 +6,57 @@ ROLES = {
     "Hallgató": {"color": "#800020", "label": "[HALLGATÓ]"}
 }
 
+# --- ÚJ: ÉRTESÍTÉSEK ABLAK ---
+class NotificationsWindow(ctk.CTkToplevel):
+    def __init__(self, parent, db, current_user, on_click_callback):
+        super().__init__(parent)
+        self.title("Értesítések")
+        self.geometry("450x550")
+        self.db = db
+        self.current_user = current_user
+        self.on_click_callback = on_click_callback
+        self.configure(fg_color="#141517")
+        self.attributes('-topmost', True) # Mindig felül marad amíg be nem zárod
+
+        ctk.CTkLabel(self, text="Legutóbbi Értesítések", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=10)
+
+        self.scroll = ctk.CTkScrollableFrame(self, fg_color="#1d1e22")
+        self.scroll.pack(fill="both", expand=True, padx=10, pady=10)
+
+        self.render_notifications()
+
+    def render_notifications(self):
+        for w in self.scroll.winfo_children(): w.destroy()
+
+        notifs = self.db.get_notifications(self.current_user["username"])
+        if not notifs:
+            ctk.CTkLabel(self.scroll, text="Nincsenek értesítéseid.", text_color="#aaaaaa").pack(pady=20)
+            return
+
+        for n in notifs:
+            is_read = n.get("is_read", False)
+            # Ha olvasott, halványabb a háttér és a szöveg is
+            bg_color = "#141517" if is_read else "#3a1e1e"
+            text_color = "#888888" if is_read else "#ffffff"
+
+            card = ctk.CTkFrame(self.scroll, fg_color=bg_color, corner_radius=8)
+            card.pack(fill="x", pady=5, padx=5)
+
+            ctk.CTkLabel(card, text=n["title"], font=ctk.CTkFont(weight="bold"), text_color=text_color, anchor="w").pack(fill="x", padx=10, pady=(5, 0))
+            ctk.CTkLabel(card, text=n["message"], text_color=text_color, anchor="w").pack(fill="x", padx=10, pady=(0, 5))
+
+            btn = ctk.CTkButton(card, text="Megnyitás" if not is_read else "Újra megnyitás", 
+                                fg_color="transparent", hover_color="#800020" if not is_read else "#2b2c30", 
+                                text_color=text_color, command=lambda notif=n: self.handle_click(notif))
+            btn.pack(fill="x", padx=5, pady=5)
+
+    def handle_click(self, notif):
+        if not notif.get("is_read"):
+            self.db.mark_notification_read(self.current_user["username"], notif["id"])
+        self.destroy()
+        self.on_click_callback(notif["target_type"], notif["target_data"])
+
+
 class ProfileAndChatWindow(ctk.CTkToplevel):
     def __init__(self, parent, db, current_user, target_username, on_update_callback):
         super().__init__(parent)
@@ -35,7 +86,7 @@ class ProfileAndChatWindow(ctk.CTkToplevel):
             self.setup_chat_tab()
 
     def force_refresh(self):
-        self.setup_profile_tab() # Újrarajzolja a profil fület (ha pl. jött barátkérelem)
+        self.setup_profile_tab()
         if hasattr(self, 'chat_scroll') and self.chat_scroll.winfo_exists():
             msgs = self.db.get_private_messages(self.current_user["username"], self.target_username)
             self.last_msg_count = len(msgs)
@@ -71,9 +122,7 @@ class ProfileAndChatWindow(ctk.CTkToplevel):
         self.status_lbl = ctk.CTkLabel(box, text="", font=ctk.CTkFont(size=12))
         self.status_lbl.pack(pady=4)
 
-        # --- SAJÁT PROFIL LOGIKA (Jelszó + Bejövő Barátkérelmek) ---
         if is_self:
-            # Barátkérelmek listázása és elfogadása
             requests = user_data.get("friend_requests", [])
             if requests:
                 req_frame = ctk.CTkFrame(box, fg_color="#2c1e1e", corner_radius=8)
@@ -97,9 +146,7 @@ class ProfileAndChatWindow(ctk.CTkToplevel):
             save_btn = ctk.CTkButton(box, text="Profil Mentése", fg_color="#800020", command=self.save_profile)
             save_btn.pack(pady=15)
             
-        # --- MÁS FELHASZNÁLÓ PROFILJA (Barátkérelem küldése) ---
         else:
-            # Csak hallgatóknak releváns a barátkérelem
             if self.current_user["role"] == "Hallgató" and user_data["role"] == "Hallgató":
                 friend_btn = ctk.CTkButton(box, text="+ Barátkérelem Küldése", fg_color="#27AE60", command=self.send_friend_req)
                 friend_btn.pack(pady=15)
@@ -192,7 +239,8 @@ class MainForumFrame(ctk.CTkFrame):
             admin_btn = ctk.CTkButton(navbar, text="⚙ ADMIN PANEL", fg_color="#E74C3C", width=120, command=self.open_admin_panel)
             admin_btn.pack(side="left", padx=10)
 
-        self.bell_btn = ctk.CTkButton(navbar, text="🔔", width=40, fg_color="transparent")
+        # 🚀 ÚJ: Kattintható Értesítés Gomb
+        self.bell_btn = ctk.CTkButton(navbar, text="🔔", width=40, fg_color="transparent", command=self.open_notifications)
         self.bell_btn.pack(side="left", padx=10)
 
         logout_btn = ctk.CTkButton(navbar, text="Kijelentkezés", width=100, fg_color="#2b2c30", command=self.handle_logout)
@@ -227,15 +275,32 @@ class MainForumFrame(ctk.CTkFrame):
         self.last_forum_data = self.db.get_forum_data()
         self.render_forum_view()
         self.update_online_users()
+        self.update_bell()
 
+    # --- ÉRTESÍTÉSEK KEZELÉSE ---
+    def open_notifications(self):
+        NotificationsWindow(self, self.db, self.current_user, self.handle_notification_click)
+
+    def handle_notification_click(self, target_type, target_data):
+        if target_type == "pm":
+            self.open_profile(target_data)
+        elif target_type == "topic":
+            self.open_topic(target_data["subforum_id"], target_data["topic_id"])
+        self.force_refresh()
+
+    def update_bell(self):
+        notifs = self.db.get_notifications(self.current_user["username"])
+        unread = any(not n.get("is_read") for n in notifs)
+        if unread:
+            self.bell_btn.configure(text="🔔 (Új értesítés!)", fg_color="#800020")
+        else:
+            self.bell_btn.configure(text="🔔", fg_color="transparent")
+
+    # --- FRISSÍTÉSEK ---
     def force_refresh(self):
         if hasattr(self.db, 'send_heartbeat'): self.db.send_heartbeat(self.current_user["username"])
         self.update_online_users()
-        
-        has_unread = False
-        if hasattr(self.db, 'has_unread_messages'): has_unread = self.db.has_unread_messages(self.current_user["username"])
-        self.bell_btn.configure(text="🔔 (Új üzenet!)" if has_unread else "🔔", fg_color="#800020" if has_unread else "transparent")
-        
+        self.update_bell()
         self.last_forum_data = self.db.get_forum_data()
         self.render_forum_view()
 
@@ -243,10 +308,7 @@ class MainForumFrame(ctk.CTkFrame):
         if self.winfo_exists():
             if hasattr(self.db, 'send_heartbeat'): self.db.send_heartbeat(self.current_user["username"])
             self.update_online_users()
-
-            has_unread = False
-            if hasattr(self.db, 'has_unread_messages'): has_unread = self.db.has_unread_messages(self.current_user["username"])
-            self.bell_btn.configure(text="🔔 (Új üzenet!)" if has_unread else "🔔", fg_color="#800020" if has_unread else "transparent")
+            self.update_bell()
 
             new_data = self.db.get_forum_data()
             if self.last_forum_data != new_data:
@@ -320,6 +382,11 @@ class MainForumFrame(ctk.CTkFrame):
                     for top in sf["topics"]:
                         is_deleted = top.get("deleted", False)
                         is_locked = top.get("locked", False)
+                        
+                        # 🚀 ÚJ: TÖRÖLT TÉMÁK ELREJTÉSE (Kivéve Adminok és a téma írója)
+                        if is_deleted and self.current_user.get("role") != "Admin" and self.current_user["username"] != top["author"]:
+                            continue
+
                         card_color = "#3a1e1e" if is_deleted else "#1d1e22"
                         card = ctk.CTkFrame(self.left_box, fg_color=card_color, corner_radius=8)
                         card.pack(fill="x", pady=4)
@@ -362,6 +429,11 @@ class MainForumFrame(ctk.CTkFrame):
 
                             for idx, post in enumerate(top["posts"]):
                                 is_p_deleted = post.get("deleted", False)
+                                
+                                # 🚀 ÚJ: TÖRÖLT BEJEGYZÉSEK ELREJTÉSE
+                                if is_p_deleted and self.current_user.get("role") != "Admin" and self.current_user["username"] != post["author"]:
+                                    continue
+
                                 p_color = "#2a1818" if is_p_deleted else "#1d1e22"
                                 card = ctk.CTkFrame(self.left_box, fg_color=p_color, corner_radius=8)
                                 card.pack(fill="x", pady=4)
