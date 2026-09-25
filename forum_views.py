@@ -408,58 +408,77 @@ class MainForumFrame(ctk.CTkFrame):
                                 ctk.CTkButton(card, text="Nyit/Zár", fg_color="#E67E22", width=60, command=lambda t_id=top["topic_id"]: [self.db.toggle_topic_lock(t_id), self.force_refresh()]).pack(side="right", padx=5)
 
     def open_topic(self, subforum_id, topic_id):
-        self.selected_subforum_id = subforum_id
-        self.selected_topic_id = topic_id
-        for w in self.left_box.winfo_children(): w.destroy()
+            self.selected_subforum_id = subforum_id
+            self.selected_topic_id = topic_id
+            for w in self.left_box.winfo_children(): w.destroy()
 
-        back_btn = ctk.CTkButton(self.left_box, text="← Vissza a témákhoz", fg_color="transparent", text_color="#800020", anchor="w", command=lambda: self.open_subforum(subforum_id))
-        back_btn.pack(fill="x", pady=5)
+            # Felső sáv: Vissza gomb és Figyelés gomb
+            top_bar = ctk.CTkFrame(self.left_box, fg_color="transparent")
+            top_bar.pack(fill="x", pady=5)
 
-        data = self.last_forum_data
-        for cat in data["categories"]:
-            for sf in cat["subforums"]:
-                if sf["subforum_id"] == subforum_id:
-                    for top in sf["topics"]:
-                        if top["topic_id"] == topic_id:
-                            if self.current_user.get("role") == "Admin" or self.current_user["username"] == top["author"]:
-                                move_bar = ctk.CTkFrame(self.left_box, fg_color="#1d1e22")
-                                move_bar.pack(fill="x", pady=5)
-                                ctk.CTkLabel(move_bar, text="Téma Átmozgatása:").pack(side="left", padx=10)
-                                ctk.CTkOptionMenu(move_bar, values=["1 - Központi Hirdetmények", "2 - Python Nagyházi"], command=lambda target, t_id=topic_id: [self.db.move_topic(t_id, int(target.split(" - ")[0])), setattr(self, 'selected_topic_id', None), self.force_refresh()]).pack(side="left", padx=10)
+            back_btn = ctk.CTkButton(top_bar, text="← Vissza a témákhoz", fg_color="transparent", text_color="#800020", anchor="w", command=lambda: self.open_subforum(subforum_id))
+            back_btn.pack(side="left")
 
-                            for idx, post in enumerate(top["posts"]):
-                                is_p_deleted = post.get("deleted", False)
-                                
-                                # 🚀 ÚJ: TÖRÖLT BEJEGYZÉSEK ELREJTÉSE
-                                if is_p_deleted and self.current_user.get("role") != "Admin" and self.current_user["username"] != post["author"]:
-                                    continue
+            # --- ÚJ: TÉMA FIGYELÉSE GOMB ---
+            # Lekérjük a legfrissebb profiladatokat, hogy lássuk, figyeli-e már
+            user_data = self.db.get_user(self.current_user["username"])
+            is_watching = topic_id in user_data.get("watched", [])
+            
+            watch_text = "✔ Figyelve" if is_watching else "👁 Téma Figyelése"
+            watch_color = "#27AE60" if is_watching else "#2b2c30"
+            watch_hover = "#2ecc71" if is_watching else "#3a3c42"
+            
+            watch_btn = ctk.CTkButton(
+                top_bar, text=watch_text, fg_color=watch_color, hover_color=watch_hover, width=120,
+                command=lambda: [self.db.toggle_watch(self.current_user["username"], topic_id), self.force_refresh()]
+            )
+            watch_btn.pack(side="right", padx=10)
 
-                                p_color = "#2a1818" if is_p_deleted else "#1d1e22"
-                                card = ctk.CTkFrame(self.left_box, fg_color=p_color, corner_radius=8)
-                                card.pack(fill="x", pady=4)
-
-                                hdr = ctk.CTkFrame(card, fg_color="transparent")
-                                hdr.pack(fill="x", padx=10, pady=(6, 0))
-                                ctk.CTkLabel(hdr, text=post['author'], font=ctk.CTkFont(weight="bold"), text_color="#3498DB").pack(side="left")
-
+            data = self.last_forum_data
+            for cat in data["categories"]:
+                for sf in cat["subforums"]:
+                    if sf["subforum_id"] == subforum_id:
+                        for top in sf["topics"]:
+                            if top["topic_id"] == topic_id:
                                 if self.current_user.get("role") == "Admin" or self.current_user["username"] == top["author"]:
-                                    if is_p_deleted:
-                                        ctk.CTkButton(hdr, text="Visszaállítás", fg_color="#27AE60", width=70, height=22, command=lambda p_idx=idx: [self.db.toggle_post_deletion(topic_id, p_idx, False), self.force_refresh()]).pack(side="right")
-                                    else:
-                                        ctk.CTkButton(hdr, text="Törlés", fg_color="#E74C3C", width=50, height=22, command=lambda p_idx=idx: [self.db.toggle_post_deletion(topic_id, p_idx, True), self.force_refresh()]).pack(side="right")
+                                    move_bar = ctk.CTkFrame(self.left_box, fg_color="#1d1e22")
+                                    move_bar.pack(fill="x", pady=5)
+                                    ctk.CTkLabel(move_bar, text="Téma Átmozgatása:").pack(side="left", padx=10)
+                                    ctk.CTkOptionMenu(move_bar, values=["1 - Központi Hirdetmények", "2 - Python Nagyházi"], command=lambda target, t_id=topic_id: [self.db.move_topic(t_id, int(target.split(" - ")[0])), setattr(self, 'selected_topic_id', None), self.force_refresh()]).pack(side="left", padx=10)
 
-                                txt = f"❌ [TÖRÖLT BEJEGYZÉS]: {post['content']}" if is_p_deleted else post['content']
-                                ctk.CTkLabel(card, text=txt, text_color="#888888" if is_p_deleted else "#ffffff", wraplength=520, justify="left", anchor="w").pack(anchor="w", padx=12, pady=(4, 8))
+                                for idx, post in enumerate(top["posts"]):
+                                    is_p_deleted = post.get("deleted", False)
+                                    
+                                    # 🚀 ÚJ: TÖRÖLT BEJEGYZÉSEK ELREJTÉSE
+                                    if is_p_deleted and self.current_user.get("role") != "Admin" and self.current_user["username"] != post["author"]:
+                                        continue
 
-                            if not top.get("locked", False):
-                                input_frame = ctk.CTkFrame(self.left_box, fg_color="#1d1e22")
-                                input_frame.pack(fill="x", pady=12)
-                                self.reply_entry = ctk.CTkEntry(input_frame, placeholder_text="Írj hozzászólást...", fg_color="#141517", height=38)
-                                self.reply_entry.pack(side="left", fill="x", expand=True, padx=8, pady=8)
-                                self.reply_entry.bind("<Return>", lambda event: self.send_reply(subforum_id, topic_id))
-                                ctk.CTkButton(input_frame, text="Küldés", width=90, height=38, fg_color="#800020", command=lambda: self.send_reply(subforum_id, topic_id)).pack(side="right", padx=8, pady=8)
-                            else:
-                                ctk.CTkLabel(self.left_box, text="🔒 Ez a téma le van zárva.", text_color="#E67E22").pack(pady=10)
+                                    p_color = "#2a1818" if is_p_deleted else "#1d1e22"
+                                    card = ctk.CTkFrame(self.left_box, fg_color=p_color, corner_radius=8)
+                                    card.pack(fill="x", pady=4)
+
+                                    hdr = ctk.CTkFrame(card, fg_color="transparent")
+                                    hdr.pack(fill="x", padx=10, pady=(6, 0))
+                                    ctk.CTkLabel(hdr, text=post['author'], font=ctk.CTkFont(weight="bold"), text_color="#3498DB").pack(side="left")
+
+                                    if self.current_user.get("role") == "Admin" or self.current_user["username"] == top["author"]:
+                                        if is_p_deleted:
+                                            ctk.CTkButton(hdr, text="Visszaállítás", fg_color="#27AE60", width=70, height=22, command=lambda p_idx=idx: [self.db.toggle_post_deletion(topic_id, p_idx, False), self.force_refresh()]).pack(side="right")
+                                        else:
+                                            ctk.CTkButton(hdr, text="Törlés", fg_color="#E74C3C", width=50, height=22, command=lambda p_idx=idx: [self.db.toggle_post_deletion(topic_id, p_idx, True), self.force_refresh()]).pack(side="right")
+
+                                    txt = f"❌ [TÖRÖLT BEJEGYZÉS]: {post['content']}" if is_p_deleted else post['content']
+                                    ctk.CTkLabel(card, text=txt, text_color="#888888" if is_p_deleted else "#ffffff", wraplength=520, justify="left", anchor="w").pack(anchor="w", padx=12, pady=(4, 8))
+
+                                if not top.get("locked", False):
+                                    input_frame = ctk.CTkFrame(self.left_box, fg_color="#1d1e22")
+                                    input_frame.pack(fill="x", pady=12)
+                                    self.reply_entry = ctk.CTkEntry(input_frame, placeholder_text="Írj hozzászólást...", fg_color="#141517", height=38)
+                                    self.reply_entry.pack(side="left", fill="x", expand=True, padx=8, pady=8)
+                                    self.reply_entry.bind("<Return>", lambda event: self.send_reply(subforum_id, topic_id))
+                                    ctk.CTkButton(input_frame, text="Küldés", width=90, height=38, fg_color="#800020", command=lambda: self.send_reply(subforum_id, topic_id)).pack(side="right", padx=8, pady=8)
+                                else:
+                                    ctk.CTkLabel(self.left_box, text="🔒 Ez a téma le van zárva.", text_color="#E67E22").pack(pady=10)
 
     def send_reply(self, subforum_id, topic_id):
         text = self.reply_entry.get().strip()

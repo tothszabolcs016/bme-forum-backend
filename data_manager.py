@@ -258,6 +258,16 @@ class JsonDataManager:
                         if top["topic_id"] == topic_id:
                             top["posts"].append({"author": author, "content": content, "deleted": False})
                             self._save_forum(data)
+
+                            # A self._save_forum(data) sor után:
+                            self.notify_watchers(
+                                target_id=topic_id,
+                                title="💬 Új hozzászólás a figyelt témában",
+                                message=f"{author} új üzenetet írt ide: {top['title']}",
+                                target_type="topic",
+                                target_data={"subforum_id": subforum_id, "topic_id": topic_id},
+                                exclude_user=author
+    )
                             
                             # 🚀 ÚJ: Értesítés a téma írójának (ha nem saját magának válaszolt)
                             if top["author"] != author:
@@ -267,7 +277,7 @@ class JsonDataManager:
                                     "topic", {"subforum_id": subforum_id, "topic_id": topic_id}
                                 )
                             return
-
+                        
     def has_unread_messages(self, username):
         data = self.get_forum_data()
         for msg in data.get("private_chats", []):
@@ -319,6 +329,16 @@ class JsonDataManager:
                         break
         self.save_forum_data(data)
 
+        # A self._save_forum(data) sor után:
+        állapot = "❌ Archiválva/Törölve" if top["deleted"] else "✅ Visszaállítva"
+        self.notify_watchers(
+            target_id=topic_id,
+            title=f"Téma {állapot}",
+            message=f"Változás történt a figyelt témádban: {top['title']}",
+            target_type="topic",
+            target_data={"subforum_id": sf["subforum_id"], "topic_id": topic_id}
+    )
+
     def toggle_topic_lock(self, topic_id):
         data = self.get_forum_data()
         for cat in data["categories"]:
@@ -328,6 +348,16 @@ class JsonDataManager:
                         top["locked"] = not top.get("locked", False)
                         break
         self.save_forum_data(data)
+
+        # A self._save_forum(data) sor után:
+        állapot = "🔒 Lezárva" if top["locked"] else "🔓 Újra kinyitva"
+        self.notify_watchers(
+            target_id=topic_id,
+            title=f"Téma állapotváltozás: {állapot}",
+            message=f"Egy adminisztrátor módosította ezt a témát: {top['title']}",
+            target_type="topic",
+            target_data={"subforum_id": sf["subforum_id"], "topic_id": topic_id}
+    )
 
     def move_topic(self, topic_id, target_subforum_id):
         data = self.get_forum_data()
@@ -419,3 +449,44 @@ class JsonDataManager:
         import json
         with open("forum_data.json", "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
+
+    def toggle_watch(self, username, target_id):
+        """Be- vagy kikapcsolja egy téma/alfórum figyelését az adott felhasználónál."""
+        users = self._load_users()
+        for u in users:
+            if u["username"] == username:
+                if "watched" not in u: u["watched"] = []
+                if target_id in u["watched"]:
+                    u["watched"].remove(target_id)
+                    res = False # Levették a figyelést
+                else:
+                    u["watched"].append(target_id)
+                    res = True # Figyelni kezdték
+                self._save_users(users)
+                return res
+        return False
+
+    def notify_watchers(self, target_id, title, message, target_type, target_data, exclude_user=None):
+        """Kiküldi az értesítést mindenkinek, aki figyeli az adott azonosítót."""
+        import uuid
+        users = self._load_users()
+        changed = False
+        for u in users:
+            # Magának az akció elkövetőjének nem küldünk értesítést
+            if u["username"] == exclude_user: 
+                continue
+                
+            if target_id in u.get("watched", []):
+                if "notifications" not in u: u["notifications"] = []
+                u["notifications"].insert(0, {
+                    "id": str(uuid.uuid4()),
+                    "title": title,
+                    "message": message,
+                    "target_type": target_type,
+                    "target_data": target_data,
+                    "is_read": False
+                })
+                changed = True
+        
+        if changed:
+            self._save_users(users)

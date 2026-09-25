@@ -77,3 +77,4 @@ class ClientAPI:
     def toggle_post_deletion(self, *args): return self._call("toggle_post_deletion", *args)
     def toggle_topic_lock(self, *args): return self._call("toggle_topic_lock", *args)
     def move_topic(self, *args): return self._call("move_topic", *args)
+    def toggle_watch(self, username, target_id): return self._call("toggle_watch", username, target_id)
