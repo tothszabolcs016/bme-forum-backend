@@ -92,13 +92,17 @@ class JsonDataManager:
 
     def _save_users(self, data):
         if DB_URL and psycopg2:
-            with self._get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        INSERT INTO app_data (key, data) VALUES ('users', %s)
-                        ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data
-                    """, (json.dumps(data),))
-                conn.commit()
+            try:
+                with self._get_conn() as conn:
+                    with conn.cursor() as cur:
+                        # A %s után a ::jsonb kényszeríti az adatbázist, hogy fogadja el JSON-ként!
+                        cur.execute("""
+                            INSERT INTO app_data (key, data) VALUES ('users', %s::jsonb)
+                            ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data
+                        """, (json.dumps(data),))
+                    conn.commit()
+            except Exception as e:
+                print(f"[HIBA - Mentés] Nem sikerült a felhasználókat SQL-be menteni: {e}")
         else:
             with open(USERS_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
@@ -119,13 +123,17 @@ class JsonDataManager:
 
     def _save_forum(self, data):
         if DB_URL and psycopg2:
-            with self._get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        INSERT INTO app_data (key, data) VALUES ('forum', %s)
-                        ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data
-                    """, (json.dumps(data),))
-                conn.commit()
+            try:
+                with self._get_conn() as conn:
+                    with conn.cursor() as cur:
+                        # Itt is hozzáadjuk a ::jsonb konverziót
+                        cur.execute("""
+                            INSERT INTO app_data (key, data) VALUES ('forum', %s::jsonb)
+                            ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data
+                        """, (json.dumps(data),))
+                    conn.commit()
+            except Exception as e:
+                print(f"[HIBA - Mentés] Nem sikerült a fórum adatokat SQL-be menteni: {e}")
         else:
             with open(FORUM_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
