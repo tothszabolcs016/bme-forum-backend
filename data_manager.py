@@ -41,11 +41,20 @@ class JsonDataManager:
     def __init__(self):
         self.active_sessions = set()
         
-        # Ha a Renderen vagyunk, inicializáljuk az SQL táblát
+        # LOGOLÁS: Kiírjuk, hogy mik a feltételek állásai
+        print(f"[Rendszer - Indulás] DB_URL beállítva: {bool(DB_URL)}")
+        print(f"[Rendszer - Indulás] psycopg2 modul betöltve: {bool(psycopg2)}")
+
         if DB_URL and psycopg2:
-            self._init_db()
+            try:
+                print("[Rendszer] Csatlakozás a Render PostgreSQL adatbázishoz...")
+                self._init_db()
+                print("[Rendszer] ✅ Sikeres SQL csatlakozás és tábla inicializálás!")
+            except Exception as e:
+                print(f"[HIBA] ❌ SQL Csatlakozás sikertelen: {e}")
+        else:
+            print("[Rendszer] ⚠️ FIGYELEM: Lokális JSON fájlokat használunk (SQL nem elérhető)!")
             
-        # Betöltjük az alapértelmezett adatokat, ha még üres a rendszer
         self.init_data()
 
     def _hash_password(self, password):
